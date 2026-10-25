@@ -1,0 +1,6 @@
+﻿.venv/
+venv/
+__pycache__/
+.wrangler/
+node_modules/
+*.zip
