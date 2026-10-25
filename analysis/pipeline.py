@@ -134,6 +134,7 @@ def load_books(path: Path) -> pd.DataFrame:
     b.columns = [str(c).lstrip(":") for c in b.columns]
     b["id"] = pd.to_numeric(b["id"], errors="coerce").astype("Int64")
     b["year"] = pd.to_numeric(b["year"], errors="coerce").astype("Int64")
+    b.loc[b["year"] <= 0, "year"] = pd.NA
     for c in ("title", "author", "genre", "publisher"):
         b[c] = b[c].map(norm_text)
     b = b.dropna(subset=["id"]).drop_duplicates(subset="id")
@@ -145,7 +146,7 @@ def load_orders(path: Path) -> pd.DataFrame:
     o = pd.read_parquet(path)
     for c in ("id", "user_id", "book_id", "quantity"):
         o[c] = pd.to_numeric(o[c], errors="coerce").astype("Int64")
-    o["unit_price"] = o["unit_price"].map(parse_price).round(2)
+    o["unit_price"] = o["unit_price"].map(parse_price)
     o["timestamp"] = pd.to_datetime(o["timestamp"].map(parse_timestamp))
     o["shipping"] = o["shipping"].map(lambda s: None if norm_text(s) in (None, "NULL", "nan") else norm_text(s))
 
