@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bookstore Sales Dashboard</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.0.0/dist/css/tabler.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+  :root {
+    --tblr-font-sans-serif: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --page-bg: #f4f5f7;
+    --series-1: #2a78d6;
+    --grid: #e6e7ea;
+    --ink-muted: #6b6a66;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --page-bg: #121211; --series-1: #3987e5; --grid: #2c2c2a; --ink-muted: #a8a79f; }
+  }
+  :root[data-theme="dark"] { --page-bg: #121211; --series-1: #3987e5; --grid: #2c2c2a; --ink-muted: #a8a79f; }
+  body { background: var(--page-bg); font-feature-settings: "tnum" 1; }
+  .kpi-value { font-size: 1.9rem; font-weight: 700; line-height: 1.15; letter-spacing: -0.01em; }
+  .kpi-sub { color: var(--ink-muted); font-size: .8rem; }
+  .kpi-label { text-transform: uppercase; letter-spacing: .04em; font-size: .72rem; font-weight: 600; color: var(--ink-muted); }
+  .ids { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 1.05rem; font-weight: 600; word-break: break-word; }
+  .author-name { font-size: 1.1rem; font-weight: 600; line-height: 1.35; }
+  .rank-row { display: grid; grid-template-columns: 1fr auto; gap: .25rem .75rem; align-items: center; padding: .4rem 0; border-bottom: 1px solid var(--grid); }
+  .rank-row:last-child { border-bottom: 0; }
+  .rank-bar { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--grid); overflow: hidden; }
+  .rank-bar > span { display: block; height: 100%; background: var(--series-1); border-radius: 3px; }
+  .rank-label { font-size: .85rem; overflow: hidden; text-overflow: ellipsis; }
+  .store-tabs .nav-link { font-weight: 600; }
+  #chart { min-height: 340px; }
+  /* chat */
+  .chat-card { position: sticky; top: 1rem; height: calc(100vh - 2rem); display: flex; flex-direction: column; }
+  .chat-log { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: .6rem; }
+  .msg { max-width: 92%; padding: .55rem .8rem; border-radius: 12px; font-size: .875rem; line-height: 1.45; white-space: pre-wrap; }
+  .msg.bot { background: var(--tblr-bg-surface-secondary); align-self: flex-start; border-bottom-left-radius: 4px; }
+  .msg.me { background: var(--series-1); color: #fff; align-self: flex-end; border-bottom-right-radius: 4px; }
+  .chips { display: flex; flex-wrap: wrap; gap: .35rem; padding: 0 1rem .6rem; }
+  .chips button { font-size: .75rem; }
+  @media (max-width: 1199.98px) { .chat-card { position: static; height: 520px; } }
+  .table td, .table th { vertical-align: middle; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="navbar navbar-expand-md d-print-none border-bottom">
+    <div class="container-xl">
+      <div class="navbar-brand pe-0 pe-md-3">
+        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="me-2 text-primary"><path d="M3 19a9 9 0 0 1 9 0a9 9 0 0 1 9 0"/><path d="M3 6a9 9 0 0 1 9 0a9 9 0 0 1 9 0"/><path d="M3 6v13"/><path d="M12 6v13"/><path d="M21 6v13"/></svg>
+        Bookstore Sales Analytics
+      </div>
+      <div class="navbar-nav flex-row order-md-last align-items-center gap-2">
+        <span class="text-secondary small d-none d-sm-inline" id="range"></span>
+        <button class="btn btn-icon btn-ghost-secondary" id="themeBtn" title="Toggle theme" aria-label="Toggle theme">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div class="page-wrapper">
+    <div class="page-header">
+      <div class="container-xl">
+        <div class="row g-2 align-items-end">
+          <div class="col">
+            <div class="page-pretitle">Task 4 · Data analysis</div>
+            <h2 class="page-title">Sales overview by store</h2>
+          </div>
+        </div>
+        <ul class="nav nav-tabs store-tabs mt-3" id="storeTabs" role="tablist"></ul>
+      </div>
+    </div>
+
+    <div class="page-body">
+      <div class="container-xl">
+        <div class="row g-3">
+          <div class="col-xl-9">
+            <!-- KPI row -->
+            <div class="row row-cards g-3">
+              <div class="col-sm-6 col-lg-3"><div class="card card-sm h-100"><div class="card-body">
+                <div class="kpi-label">Unique users</div>
+                <div class="kpi-value" id="kUsers"></div>
+                <div class="kpi-sub" id="kUsersSub"></div>
+              </div></div></div>
+              <div class="col-sm-6 col-lg-3"><div class="card card-sm h-100"><div class="card-body">
+                <div class="kpi-label">Unique author sets</div>
+                <div class="kpi-value" id="kSets"></div>
+                <div class="kpi-sub" id="kSetsSub"></div>
+              </div></div></div>
+              <div class="col-sm-6 col-lg-3"><div class="card card-sm h-100"><div class="card-body">
+                <div class="kpi-label">Most popular author(s)</div>
+                <div class="author-name mt-1" id="kAuthor"></div>
+                <div class="kpi-sub" id="kAuthorSub"></div>
+              </div></div></div>
+              <div class="col-sm-6 col-lg-3"><div class="card card-sm h-100"><div class="card-body">
+                <div class="kpi-label">Best buyer (all aliases)</div>
+                <div class="ids mt-1" id="kBuyer"></div>
+                <div class="kpi-sub" id="kBuyerSub"></div>
+              </div></div></div>
+            </div>
+
+            <!-- Chart -->
+            <div class="card mt-3">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">Daily revenue</h3>
+                  <div class="card-subtitle" id="chartSub"></div>
+                </div>
+                <div class="card-actions btn-group" role="group" aria-label="Chart range">
+                  <button class="btn btn-sm" data-days="90">90d</button>
+                  <button class="btn btn-sm" data-days="180">180d</button>
+                  <button class="btn btn-sm active" data-days="0">All</button>
+                </div>
+              </div>
+              <div class="card-body"><div id="chart"></div></div>
+            </div>
+
+            <div class="row g-3 mt-0">
+              <div class="col-lg-5">
+                <div class="card h-100">
+                  <div class="card-header"><h3 class="card-title">Top 5 days by revenue</h3></div>
+                  <div class="table-responsive">
+                    <table class="table table-vcenter card-table">
+                      <thead><tr><th>#</th><th>Date</th><th class="text-end">Revenue</th></tr></thead>
+                      <tbody id="topDays"></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+              <div class="col-lg-7">
+                <div class="card h-100">
+                  <div class="card-header"><h3 class="card-title">Author sets by books sold</h3><div class="card-subtitle ms-2">top 10</div></div>
+                  <div class="card-body py-2" id="ranking"></div>
+                </div>
+              </div>
+              <div class="col-12">
+                <div class="card">
+                  <div class="card-header"><h3 class="card-title">Best buyer — reconciled profiles</h3></div>
+                  <div class="table-responsive">
+                    <table class="table table-vcenter card-table">
+                      <thead><tr><th>user_id</th><th>Name</th><th>Address</th><th>Phone</th><th>E-mail</th></tr></thead>
+                      <tbody id="profiles"></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+              <div class="col-12">
+                <div class="card card-sm"><div class="card-body small text-secondary" id="quality"></div></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Chat area -->
+          <div class="col-xl-3">
+            <div class="card chat-card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">Data assistant</h3>
+                  <div class="card-subtitle">Ask about the selected store</div>
+                </div>
+              </div>
+              <div class="chat-log" id="chatLog" aria-live="polite"></div>
+              <div class="chips" id="chips"></div>
+              <form class="card-footer d-flex gap-2" id="chatForm">
+                <input class="form-control" id="chatInput" placeholder="e.g. best day in STORE3" autocomplete="off">
+                <button class="btn btn-primary" type="submit">Send</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <footer class="footer footer-transparent d-print-none">
+      <div class="container-xl small text-secondary">
+        Prices converted to USD (€1 = $1.20). Users reconciled when at most one of name / address / phone / e-mail differs.
+      </div>
+    </footer>
+  </div>
+</div>
+
+<script src="data/results.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/apexcharts@3.54.1/dist/apexcharts.min.js"></script>
+<script>
+(() => {
+  const DATA = window.STORE_RESULTS || [];
+  const byStore = Object.fromEntries(DATA.map(d => [d.store, d]));
+  const $ = id => document.getElementById(id);
+  const usd = v => "$" + v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const num = v => v.toLocaleString("en-US");
+  const esc = s => String(s ?? "—").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const idsStr = ids => "[" + ids.join(", ") + "]";
+
+  // ---------- theme ----------
+  const root = document.documentElement;
+  const storedTheme = (() => { try { return localStorage.getItem("theme"); } catch { return null; } })();
+  const isDark = () => root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  const applyTheme = t => { if (t) root.dataset.theme = t; root.setAttribute("data-bs-theme", isDark() ? "dark" : "light"); };
+  applyTheme(storedTheme);
+  $("themeBtn").onclick = () => {
+    const t = isDark() ? "light" : "dark";
+    applyTheme(t);
+    try { localStorage.setItem("theme", t); } catch {}
+    render(current);
+  };
+
+  // ---------- tabs ----------
+  let current = DATA[0]?.store;
+  let rangeDays = 0;
+  $("storeTabs").innerHTML = DATA.map(d =>
+    `<li class="nav-item" role="presentation"><a href="#${d.store}" class="nav-link" data-store="${d.store}" role="tab">${d.store}</a></li>`).join("");
+  $("storeTabs").addEventListener("click", e => {
+    const a = e.target.closest("[data-store]"); if (!a) return;
+    e.preventDefault(); history.replaceState(null, "", "#" + a.dataset.store); render(a.dataset.store);
+  });
+  document.querySelectorAll("[data-days]").forEach(b => b.onclick = () => {
+    document.querySelectorAll("[data-days]").forEach(x => x.classList.toggle("active", x === b));
+    rangeDays = +b.dataset.days; drawChart(byStore[current]);
+  });
+
+  // ---------- chart ----------
+  let chart;
+  function drawChart(d) {
+    let series = d.daily_revenue;
+    if (rangeDays) series = series.slice(-rangeDays);
+    const css = getComputedStyle(root);
+    const color = css.getPropertyValue("--series-1").trim();
+    const grid = css.getPropertyValue("--grid").trim();
+    const muted = css.getPropertyValue("--ink-muted").trim();
+    const opts = {
+      chart: { type: "area", height: 340, fontFamily: "Inter, sans-serif", background: "transparent",
+               toolbar: { show: false }, zoom: { enabled: false }, animations: { enabled: false } },
+      theme: { mode: isDark() ? "dark" : "light" },
+      series: [{ name: "Revenue", data: series.map(p => [new Date(p.date + "T00:00:00Z").getTime(), p.revenue]) }],
+      colors: [color],
+      stroke: { width: 2, curve: "straight" },
+      fill: { type: "gradient", gradient: { opacityFrom: 0.22, opacityTo: 0.02 } },
+      dataLabels: { enabled: false },
+      markers: { size: 0, hover: { size: 5 } },
+      grid: { borderColor: grid, strokeDashArray: 3, padding: { left: 8, right: 8 } },
+      xaxis: { type: "datetime", labels: { style: { colors: muted }, datetimeUTC: true }, axisBorder: { show: false },
+               crosshairs: { show: true, stroke: { color: muted, dashArray: 3 } }, tooltip: { enabled: false } },
+      yaxis: { min: 0, labels: { style: { colors: muted }, formatter: v => "$" + (v >= 1000 ? (v / 1000).toFixed(1) + "k" : Math.round(v)) } },
+      tooltip: { x: { format: "yyyy-MM-dd" }, y: { formatter: v => usd(v) } },
+    };
+    if (chart) chart.destroy();
+    chart = new ApexCharts($("chart"), opts);
+    chart.render();
+  }
+
+  // ---------- render ----------
+  function render(store) {
+    const d = byStore[store]; if (!d) return;
+    current = store;
+    document.querySelectorAll("#storeTabs .nav-link").forEach(a => a.classList.toggle("active", a.dataset.store === store));
+    $("range").textContent = `${d.date_range[0]} → ${d.date_range[1]}`;
+
+    $("kUsers").textContent = num(d.unique_users);
+    $("kUsersSub").textContent = `from ${num(d.user_records)} user records`;
+    $("kSets").textContent = num(d.unique_author_sets);
+    $("kSetsSub").textContent = `across ${num(d.quality.books)} books`;
+    $("kAuthor").innerHTML = d.top_authors.map(s => esc(s.join(" & "))).join("<br>");
+    $("kAuthorSub").textContent = `${num(d.top_authors_sold)} books sold`;
+    $("kBuyer").textContent = idsStr(d.best_buyer.ids);
+    $("kBuyerSub").textContent = `${usd(d.best_buyer.total_spent)} · ${d.best_buyer.orders} orders`;
+    $("chartSub").textContent = `Total ${usd(d.total_revenue)} · ${num(d.total_orders)} orders · ${num(d.books_sold)} books`;
+
+    $("topDays").innerHTML = d.top5_days.map((t, i) =>
+      `<tr><td class="text-secondary">${i + 1}</td><td class="fw-semibold">${t.date}</td><td class="text-end">${usd(t.revenue)}</td></tr>`).join("");
+
+    const max = d.top_author_sets_ranking[0].sold;
+    $("ranking").innerHTML = d.top_author_sets_ranking.map(r =>
+      `<div class="rank-row" title="${esc(r.authors.join(", "))}: ${r.sold} books">
+         <div class="rank-label">${esc(r.authors.join(" & "))}</div><div class="fw-semibold">${r.sold}</div>
+         <div class="rank-bar"><span style="width:${(r.sold / max * 100).toFixed(1)}%"></span></div></div>`).join("");
+
+    $("profiles").innerHTML = d.best_buyer.profiles.map(p =>
+      `<tr><td class="fw-semibold">${p.id}</td><td>${esc(p.name)}</td><td>${esc(p.address)}</td><td>${esc(p.phone)}</td><td>${esc(p.email)}</td></tr>`).join("");
+
+    const q = d.quality;
+    $("quality").innerHTML = `<strong>Data quality — ${store}:</strong> ${num(q.orders_clean)} of ${num(q.orders_raw)} orders kept after cleaning ·
+      ${num(q.users)} user records (${q.users_missing_address} without address) · ${num(q.books)} books
+      (${q.books_missing_year} missing year, ${q.books_missing_publisher} missing publisher).`;
+    drawChart(d);
+  }
+
+  // ---------- chat ----------
+  const log = $("chatLog");
+  function say(text, who = "bot") {
+    const el = document.createElement("div");
+    el.className = "msg " + who; el.textContent = text;
+    log.appendChild(el); log.scrollTop = log.scrollHeight;
+  }
+  function answer(qRaw) {
+    const q = qRaw.toLowerCase();
+    const m = q.match(/store\s*([1-9])/);
+    const d = m && byStore["STORE" + m[1]] ? byStore["STORE" + m[1]] : byStore[current];
+    const s = d.store;
+    const date = q.match(/\d{4}-\d{2}-\d{2}/);
+    if (date) {
+      const hit = d.daily_revenue.find(p => p.date === date[0]);
+      return hit ? `${s} revenue on ${date[0]}: ${usd(hit.revenue)}.` : `${s} has no sales on ${date[0]}.`;
+    }
+    if (/compare|all stores|every store/.test(q))
+      return DATA.map(x => `${x.store}: ${usd(x.total_revenue)} revenue, ${num(x.unique_users)} users, ${x.unique_author_sets} author sets`).join("\n");
+    if (/top|best day|days|peak/.test(q) && !/buyer|customer|author/.test(q))
+      return `Top 5 days in ${s}:\n` + d.top5_days.map((t, i) => `${i + 1}. ${t.date} — ${usd(t.revenue)}`).join("\n");
+    if (/user|customer count|how many (people|customers)/.test(q) && !/best|top/.test(q))
+      return `${s} has ${num(d.unique_users)} real unique users (${num(d.user_records)} records before reconciliation).`;
+    if (/set/.test(q))
+      return `${s} has ${num(d.unique_author_sets)} unique sets of authors.`;
+    if (/author|popular|writer/.test(q))
+      return `Most popular in ${s}: ${d.top_authors.map(a => a.join(" & ")).join("; ")} — ${num(d.top_authors_sold)} books sold.`;
+    if (/buyer|customer|spend|spent|client/.test(q))
+      return `Best buyer in ${s}: ${idsStr(d.best_buyer.ids)} — ${usd(d.best_buyer.total_spent)} over ${d.best_buyer.orders} orders.`;
+    if (/revenue|total|sales|money/.test(q))
+      return `${s} total revenue: ${usd(d.total_revenue)} from ${num(d.total_orders)} orders (${d.date_range[0]} → ${d.date_range[1]}).`;
+    return "I can answer about top days, unique users, author sets, popular authors, best buyer, revenue on a date (YYYY-MM-DD) or compare all stores.";
+  }
+  $("chatForm").onsubmit = e => {
+    e.preventDefault();
+    const v = $("chatInput").value.trim(); if (!v) return;
+    say(v, "me"); $("chatInput").value = "";
+    setTimeout(() => say(answer(v)), 150);
+  };
+  const chips = ["Top 5 days", "Unique users", "Most popular author", "Best buyer", "Compare all stores"];
+  $("chips").innerHTML = chips.map(c => `<button type="button" class="btn btn-sm btn-outline-secondary">${c}</button>`).join("");
+  $("chips").onclick = e => { const b = e.target.closest("button"); if (b) { $("chatInput").value = b.textContent; $("chatForm").requestSubmit(); } };
+  say("Hi! Ask me about the store currently selected, or name one (e.g. “STORE2”).");
+
+  const initial = location.hash.slice(1);
+  render(byStore[initial] ? initial : current);
+})();
+</script>
+</body>
+</html>
