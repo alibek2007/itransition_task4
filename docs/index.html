@@ -158,8 +158,8 @@
             <div class="card chat-card">
               <div class="card-header">
                 <div>
-                  <h3 class="card-title">Data assistant</h3>
-                  <div class="card-subtitle">Ask about the selected store</div>
+                  <h3 class="card-title">AI data assistant</h3>
+                  <div class="card-subtitle">Powered by Google Gemini</div>
                 </div>
               </div>
               <div class="chat-log" id="chatLog" aria-live="polite"></div>
@@ -293,6 +293,22 @@
     const el = document.createElement("div");
     el.className = "msg " + who; el.textContent = text;
     log.appendChild(el); log.scrollTop = log.scrollHeight;
+    return el;
+  }
+
+  // ---------- AI (Gemini via Cloudflare Worker) ----------
+  const AI_URL = "https://bookstore-ai.alibek2007.workers.dev";   // <- your Worker URL
+  const chatHistory = [];
+
+  async function askAI(question) {
+    const res = await fetch(AI_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, store: current, history: chatHistory.slice(-6) }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.answer) throw new Error(data.error || "HTTP " + res.status);
+    return data.answer;
   }
   function answer(qRaw) {
     const q = qRaw.toLowerCase();
@@ -320,16 +336,27 @@
       return `${s} total revenue: ${usd(d.total_revenue)} from ${num(d.total_orders)} orders (${d.date_range[0]} → ${d.date_range[1]}).`;
     return "I can answer about top days, unique users, author sets, popular authors, best buyer, revenue on a date (YYYY-MM-DD) or compare all stores.";
   }
-  $("chatForm").onsubmit = e => {
+  $("chatForm").onsubmit = async e => {
     e.preventDefault();
     const v = $("chatInput").value.trim(); if (!v) return;
     say(v, "me"); $("chatInput").value = "";
-    setTimeout(() => say(answer(v)), 150);
+    const btn = $("chatForm").querySelector("button"); btn.disabled = true;
+    const bubble = say("Thinking…");
+    let reply;
+    try {
+      reply = await askAI(v);
+    } catch (err) {
+      console.warn("AI unavailable, using offline answers:", err);
+      reply = answer(v) + "\n\n(offline mode — AI is unavailable)";
+    }
+    bubble.textContent = reply; log.scrollTop = log.scrollHeight;
+    chatHistory.push({ role: "user", text: v }, { role: "bot", text: reply });
+    btn.disabled = false;
   };
   const chips = ["Top 5 days", "Unique users", "Most popular author", "Best buyer", "Compare all stores"];
   $("chips").innerHTML = chips.map(c => `<button type="button" class="btn btn-sm btn-outline-secondary">${c}</button>`).join("");
   $("chips").onclick = e => { const b = e.target.closest("button"); if (b) { $("chatInput").value = b.textContent; $("chatForm").requestSubmit(); } };
-  say("Hi! Ask me about the store currently selected, or name one (e.g. “STORE2”).");
+  say("Hi! I am an AI assistant. Ask me anything about the stores, e.g. “Which store had the best November 2025?”");
 
   const initial = location.hash.slice(1);
   render(byStore[initial] ? initial : current);

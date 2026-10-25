@@ -29,6 +29,7 @@ For every `data/STORE*` folder the pipeline:
 │   └── pipeline.py        # loading, cleaning, analysis, charts
 ├── data/
 │   └── STORE1 … STORE5/   # orders.parquet, users.csv, books.yaml
+├── worker/                # Cloudflare Worker: AI chat backend (Gemini)
 ├── docs/                  # static dashboard (GitHub Pages)
 │   ├── index.html
 │   └── data/              # results.json, results.js, *_daily_revenue.png
@@ -106,8 +107,32 @@ A static page built with [Tabler](https://tabler.io/) (UI template) and [ApexCha
 - KPI cards: unique users, unique author sets, revenue, orders;
 - top 5 days table, most popular author(s), best buyer ids;
 - interactive daily revenue chart;
-- **chat area** — ask about top days, users, author sets, authors, the best buyer, revenue on a date (`YYYY-MM-DD`) or compare all stores.
+- **AI chat area** (Google Gemini) — ask anything about the stores; see [AI chat](#ai-chat-parts-2--3).
+
+## AI chat (parts 2 & 3)
+
+The chat area on the dashboard is answered by **Google Gemini**.
+
+```
+Dashboard (GitHub Pages)  ──POST {question, store, history}──►  Cloudflare Worker  ──►  Gemini API
+          ▲                                                    (holds API key)              │
+          └─────────────────────────────── answer ──────────────────────────────────────────┘
+```
+
+- `worker/worker.js` — a Cloudflare Worker that loads `docs/data/results.json`, turns it into a compact data summary and sends it to Gemini together with the question and recent chat history.
+- **Grounded answers:** the system prompt tells the model to answer only from this data and never invent numbers; it can still calculate (comparisons, monthly totals, averages).
+- **Security:** the Gemini API key is stored as a Worker secret, not in the public page. CORS allows only the dashboard origin.
+- **Fallback:** if the AI is unavailable, the chat answers with the built-in rule-based responses.
+
+Deploy the Worker:
+
+```bash
+cd worker
+npx wrangler login
+npx wrangler secret put GEMINI_API_KEY
+npx wrangler deploy
+```
 
 ## Tech stack
 
-Python · pandas · PyArrow · PyYAML · matplotlib · HTML/JS · Tabler · ApexCharts · GitHub Pages
+Python · pandas · PyArrow · PyYAML · matplotlib · HTML/JS · Tabler · ApexCharts · GitHub Pages · Cloudflare Workers · Google Gemini
