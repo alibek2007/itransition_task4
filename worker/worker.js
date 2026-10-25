@@ -11,7 +11,7 @@ const ALLOWED_ORIGINS = [
   "http://127.0.0.1:8000",
 ];
 
-let cachedContext = null;   // data summary, reused between requests
+let cachedData = null;      // results.json, reused between requests
 let cachedAt = 0;
 const CACHE_MS = 10 * 60 * 1000;
 
@@ -36,11 +36,18 @@ function json(body, status, origin) {
 }
 
 // Turn results.json into a compact text the model can read.
-function buildContext(data) {
+// Daily revenue is large, so it is included only for the stores the question is about;
+// every store gets monthly revenue instead.
+function buildContext(data, detailStores) {
   return data.map((s) => {
+    const monthly = {};
+    for (const d of s.daily_revenue) monthly[d.date.slice(0, 7)] = (monthly[d.date.slice(0, 7)] || 0) + d.revenue;
+    const monthlyText = Object.entries(monthly).map(([m, v]) => `${m}:${v.toFixed(2)}`).join(", ");
     const top5 = s.top5_days.map((d, i) => `${i + 1}. ${d.date} $${d.revenue}`).join("; ");
     const ranking = s.top_author_sets_ranking.map((a) => `${a.authors.join(" & ")} (${a.sold})`).join("; ");
-    const daily = s.daily_revenue.map((d) => `${d.date}:${d.revenue}`).join(",");
+    const daily = detailStores.includes(s.store)
+      ? s.daily_revenue.map((d) => `${d.date}:${d.revenue}`).join(",")
+      : "(not included - ask about this store to get daily figures)";
     return [
       `### ${s.store}`,
       `Date range: ${s.date_range[0]} to ${s.date_range[1]}`,
@@ -51,18 +58,42 @@ function buildContext(data) {
       `Top 10 author sets by copies sold: ${ranking}`,
       `Best buyer ids (all aliases of one person): [${s.best_buyer.ids.join(", ")}], spent $${s.best_buyer.total_spent} over ${s.best_buyer.orders} orders`,
       `Top 5 days by revenue: ${top5}`,
+      `Monthly revenue in USD (month:revenue): ${monthlyText}`,
       `Daily revenue in USD (date:revenue): ${daily}`,
     ].join("\n");
   }).join("\n\n");
 }
 
-async function getContext(env) {
-  if (cachedContext && Date.now() - cachedAt < CACHE_MS) return cachedContext;
+async function getData(env) {
+  if (cachedData && Date.now() - cachedAt < CACHE_MS) return cachedData;
   const res = await fetch(env.DATA_URL);
   if (!res.ok) throw new Error(`Cannot load data: HTTP ${res.status}`);
-  cachedContext = buildContext(await res.json());
+  cachedData = await res.json();
   cachedAt = Date.now();
-  return cachedContext;
+  return cachedData;
+}
+
+// Gemini call with a time limit, so a slow model can be skipped.
+async function callGemini(model, payload, key, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+        body: payload,
+        signal: controller.signal,
+      }
+    );
+    const data = await res.json().catch(() => ({}));
+    return { status: res.status, ok: res.ok, data };
+  } catch (err) {
+    return { status: 504, ok: false, data: { error: { message: `${model} timed out` } } };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function systemPrompt(context, store) {
@@ -94,7 +125,10 @@ export default {
     const history = Array.isArray(body.history) ? body.history.slice(-6) : [];
 
     try {
-      const context = await getContext(env);
+      const data = await getData(env);
+      const mentioned = [...question.toUpperCase().matchAll(/STORE\s*([1-9])/g)].map((m) => "STORE" + m[1]);
+      const detailStores = mentioned.length ? mentioned : [body.store || "STORE1"];
+      const context = buildContext(data, detailStores);
       const contents = [
         ...history.map((m) => ({
           role: m.role === "user" ? "user" : "model",
@@ -102,37 +136,45 @@ export default {
         })),
         { role: "user", parts: [{ text: question }] },
       ];
-      const payload = JSON.stringify({
+      const request = {
         systemInstruction: { parts: [{ text: systemPrompt(context, body.store) }] },
         contents,
-        generationConfig: { temperature: 0.2, maxOutputTokens: 800 },
-      });
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: 2048,                   // thinking tokens count here too
+          thinkingConfig: { thinkingLevel: "low" }, // less thinking = faster answers
+        },
+      };
+      const payload = JSON.stringify(request);
+      delete request.generationConfig.thinkingConfig;
+      const payloadNoThinking = JSON.stringify(request);  // for models that reject thinkingLevel
 
       // Try the main model first, then fall back to others if Gemini is busy.
       const models = [env.MODEL || "gemini-3.8-flash", ...FALLBACK_MODELS]
         .filter((m, i, a) => a.indexOf(m) === i);
       let lastError = "Unknown error";
 
+      const started = Date.now();
       for (const model of models) {
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
-            body: payload,
-          }
-        );
-        const data = await res.json().catch(() => ({}));
-
-        if (res.ok) {
-          const answer = (data.candidates?.[0]?.content?.parts || [])
-            .map((p) => p.text || "").join("").trim();
-          return json({ answer: answer || "Sorry, I couldn't generate an answer.", model }, 200, origin);
+        const left = 80000 - (Date.now() - started);      // stay under Cloudflare's 100 s limit
+        if (left < 5000) break;
+        let res = await callGemini(model, payload, env.GEMINI_API_KEY, Math.min(30000, left));
+        if (res.status === 400 && /thinking/i.test(res.data.error?.message || "")) {
+          res = await callGemini(model, payloadNoThinking, env.GEMINI_API_KEY, Math.min(30000, left));
         }
 
-        lastError = data.error?.message || `Gemini HTTP ${res.status}`;
-        // 429 = rate limit, 500/503 = overloaded, 404 = model not available -> try the next model
-        if (![404, 429, 500, 503].includes(res.status)) break;
+        if (res.ok) {
+          const answer = (res.data.candidates?.[0]?.content?.parts || [])
+            .filter((p) => !p.thought)
+            .map((p) => p.text || "").join("").trim();
+          if (answer) return json({ answer, model }, 200, origin);
+          lastError = `${model} returned an empty answer`;
+          continue;
+        }
+
+        lastError = res.data.error?.message || `Gemini HTTP ${res.status}`;
+        // 400 / 401 / 403 = real errors (e.g. bad key) -> stop; busy, slow or missing model -> try the next one
+        if ([400, 401, 403].includes(res.status)) break;
       }
       return json({ error: lastError }, 502, origin);
     } catch (err) {
