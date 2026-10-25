@@ -15,6 +15,9 @@ let cachedContext = null;   // data summary, reused between requests
 let cachedAt = 0;
 const CACHE_MS = 10 * 60 * 1000;
 
+// Used in order when the main model is busy or rate-limited.
+const FALLBACK_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"];
+
 // ---------- helpers ----------
 function cors(origin) {
   const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
@@ -92,8 +95,6 @@ export default {
 
     try {
       const context = await getContext(env);
-      const model = env.MODEL || "gemini-3.8-flash";
-
       const contents = [
         ...history.map((m) => ({
           role: m.role === "user" ? "user" : "model",
@@ -101,26 +102,39 @@ export default {
         })),
         { role: "user", parts: [{ text: question }] },
       ];
+      const payload = JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt(context, body.store) }] },
+        contents,
+        generationConfig: { temperature: 0.2, maxOutputTokens: 800 },
+      });
 
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: systemPrompt(context, body.store) }] },
-            contents,
-            generationConfig: { temperature: 0.2, maxOutputTokens: 800 },
-          }),
+      // Try the main model first, then fall back to others if Gemini is busy.
+      const models = [env.MODEL || "gemini-3.8-flash", ...FALLBACK_MODELS]
+        .filter((m, i, a) => a.indexOf(m) === i);
+      let lastError = "Unknown error";
+
+      for (const model of models) {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
+            body: payload,
+          }
+        );
+        const data = await res.json().catch(() => ({}));
+
+        if (res.ok) {
+          const answer = (data.candidates?.[0]?.content?.parts || [])
+            .map((p) => p.text || "").join("").trim();
+          return json({ answer: answer || "Sorry, I couldn't generate an answer.", model }, 200, origin);
         }
-      );
 
-      const data = await res.json();
-      if (!res.ok) return json({ error: data.error?.message || `Gemini HTTP ${res.status}` }, 502, origin);
-
-      const answer = (data.candidates?.[0]?.content?.parts || [])
-        .map((p) => p.text || "").join("").trim();
-      return json({ answer: answer || "Sorry, I couldn't generate an answer.", model }, 200, origin);
+        lastError = data.error?.message || `Gemini HTTP ${res.status}`;
+        // 429 = rate limit, 500/503 = overloaded, 404 = model not available -> try the next model
+        if (![404, 429, 500, 503].includes(res.status)) break;
+      }
+      return json({ error: lastError }, 502, origin);
     } catch (err) {
       return json({ error: String(err.message || err) }, 500, origin);
     }
