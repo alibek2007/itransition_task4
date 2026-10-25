@@ -1,0 +1,7 @@
+name = "bookstore-ai"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+DATA_URL = "https://alibek2007.github.io/itransition_task4/data/results.json"
+MODEL = "gemini-3.8-flash"
